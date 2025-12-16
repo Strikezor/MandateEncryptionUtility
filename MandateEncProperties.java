@@ -14,6 +14,7 @@ public class MandateEncProperties {
 //	E:\Akshay\MandateFilesStructure
 //	private static final String PROPERTIES_FILE = "F:\\MandateEncryptionUtility\\MandateEncryptionFilesStructure\\PROPERTY_FILE\\ACHMandateEncProperties.properties";
 	private static final String PROPERTIES_FILE = new File("../MandateEncryptionFilesStructure\\PROPERTY_FILE\\ACHMandateEncProperties.properties").getAbsolutePath();
+//	private static final String PROPERTIES_FILE = new File("MandateEncryptionFilesStructure\\PROPERTY_FILE\\ACHMandateEncProperties.properties").getAbsolutePath();
 	
 	private static MandateEncProperties instance = new MandateEncProperties();
 	private String propertyValue = null;
