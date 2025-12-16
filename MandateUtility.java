@@ -1,22 +1,30 @@
 package com.tcs.sbi.util;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
 import java.security.KeyStore;
+import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.SecureRandom;
+import java.security.Security;
 import java.security.cert.CertificateFactory;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -24,13 +32,34 @@ import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import javax.security.cert.Certificate;
 
 import org.apache.commons.io.FilenameUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.bouncycastle.bcpg.ArmoredOutputStream;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.openpgp.PGPCompressedData;
+import org.bouncycastle.openpgp.PGPCompressedDataGenerator;
+import org.bouncycastle.openpgp.PGPEncryptedData;
+import org.bouncycastle.openpgp.PGPEncryptedDataGenerator;
+import org.bouncycastle.openpgp.PGPException;
+import org.bouncycastle.openpgp.PGPLiteralData;
+import org.bouncycastle.openpgp.PGPPublicKey;
+import org.bouncycastle.openpgp.PGPUtil;
+import org.bouncycastle.openpgp.operator.jcajce.JcePGPDataEncryptorBuilder;
+import org.bouncycastle.openpgp.operator.jcajce.JcePublicKeyKeyEncryptionMethodGenerator;
 
 import com.tcs.sbi.launcher.MandateLauncher;
 
 public class MandateUtility {
+	private static final Logger log = LogManager.getLogger(MandateLauncher.class);
 
 	public static PrivateKey getCertKeys(String cerFileStream, String password) throws Exception {
 
@@ -181,12 +210,11 @@ public class MandateUtility {
 //		}
 	}
 
-	public static void deleteDirectory(Path dir) throws IOException{
-		if(!Files.exists(dir)){
+	public static void deleteDirectory(Path dir) throws IOException {
+		if (!Files.exists(dir)) {
 			System.out.println("File does not exists");
-		}
-		else {
-		Files.walk(dir).sorted(Comparator.reverseOrder()).forEach(path->{
+		} else {
+			Files.walk(dir).sorted(Comparator.reverseOrder()).forEach(path -> {
 				try {
 					Files.delete(path);
 				} catch (IOException e) {
@@ -219,45 +247,64 @@ public class MandateUtility {
 			System.out.println("Error while creating backup : " + e);
 		}
 	}
-//	public static String aesDecrypt(String key, String initVector, String encrypted)
-//			throws UnsupportedEncodingException {
-//		byte[] keyb = keyToB(key);
-//		byte[] ivb = keyToB(initVector);
-//		String dec = decrypt1(keyb, ivb, encrypted);
-//		return dec;
-//	}
-//	public static byte[] keyToB(String key) throws UnsupportedEncodingException {
-//
-//		byte[] keybyte = Base64.getDecoder().decode(key.getBytes("UTF-8"));
-//
-//		return keybyte;
-//	}
-//	public static String decrypt1(byte[] key, byte[] initVector, String encrypted) {
-//		try {
-//			IvParameterSpec iv = new IvParameterSpec(initVector);
-//			SecretKeySpec skeySpec = new SecretKeySpec(key, "AES");
-//			Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5PADDING");
-//			cipher.init(Cipher.DECRYPT_MODE, skeySpec, iv);
-//			byte[] original = cipher.doFinal(Base64.getDecoder().decode(encrypted));
-//	        return new String(original, "UTF-8");
-//		} catch (NoSuchAlgorithmException e) {
-//		    log.error("Algorithm not found: {}", e);
-//		} catch (NoSuchPaddingException e) {
-//		    log.error("Padding not found: {}",  e);
-//		} catch (InvalidKeyException e) {
-//		    log.error("Invalid key: {}", e);
-//		} catch (InvalidAlgorithmParameterException e) {
-//		    log.error("Invalid algorithm parameter: {}",  e);
-//		} catch (IllegalBlockSizeException e) {
-//		    log.error("Illegal block size: {}", e);
-//		} catch (BadPaddingException e) {
-//		    log.error("Bad padding: {}", e);
-//		} catch (UnsupportedEncodingException e) {
-//		    log.error("Unsupported encoding: {}", e);
-//		} catch (Exception e) {
-//		    log.error("An unexpected error occurred: {}", e);
-//		}
-//
-//		return null;
-//	}
+
+	public static boolean rsaEncryptFile(OutputStream out, String fileName, PGPPublicKey encKey, boolean armor,
+			boolean withIntegrityCheck) throws IOException {
+
+		boolean encrypted = false;
+
+		Security.addProvider(new BouncyCastleProvider());
+
+		ArmoredOutputStream armoredOut = null;
+		if (armor) {
+			armoredOut = new ArmoredOutputStream(out);
+			out = armoredOut;
+		}
+
+		PGPCompressedDataGenerator comData = new PGPCompressedDataGenerator(PGPCompressedData.ZIP);
+
+		ByteArrayOutputStream bOut = new ByteArrayOutputStream();
+
+		OutputStream compressedOut = comData.open(bOut); // MUST be closed!
+
+		PGPUtil.writeFileToLiteralData(compressedOut, PGPLiteralData.BINARY, new File(fileName));
+		compressedOut.close(); // ❗ REQUIRED: finalizes ZIP structure
+
+		JcePGPDataEncryptorBuilder encryptor = new JcePGPDataEncryptorBuilder(PGPEncryptedData.AES_256)
+				.setWithIntegrityPacket(withIntegrityCheck).setSecureRandom(new SecureRandom()).setProvider("BC");
+
+		PGPEncryptedDataGenerator encGen = new PGPEncryptedDataGenerator(encryptor);
+
+		encGen.addMethod(new JcePublicKeyKeyEncryptionMethodGenerator(encKey).setProvider("BC")
+				.setSecureRandom(new SecureRandom()));
+
+		byte[] bytes = bOut.toByteArray();
+
+		OutputStream encryptedOut = null;
+		try {
+			encryptedOut = encGen.open(out, bytes.length);
+		} catch (IOException e) {
+			log.info("Exception in encryption (IO): " + e.getMessage());
+			encrypted = false;
+			return encrypted;
+		} catch (PGPException e) {
+			log.info("Exception in encryption (PGP): " + e.getMessage());
+			encrypted = false;
+			return encrypted;
+		}
+
+		encryptedOut.write(bytes);
+		encryptedOut.close(); // close encrypted block
+
+		if (armor) {
+			armoredOut.close(); // finalize ascii armor
+		}
+
+		out.close();
+
+		comData.close(); // safe to close AFTER compressedOut closed
+
+		encrypted = true;
+		return encrypted;
+	}
 }
