@@ -41,7 +41,7 @@ import com.tcs.sbi.util.MandateUtility;
 
 public class MandateMain implements Runnable {
 
-	int testCounter = 0; 
+	int testCounter = 0;
 	// private CounterClass c = new CounterClass();
 	File zipName;
 	String type;
@@ -66,8 +66,7 @@ public class MandateMain implements Runnable {
 		PrivateKey privateKey = MandateLauncher.getPrivateKey();
 		PublicKey publicKey = MandateLauncher.getPublicKey();
 		PGPPublicKey pgpPublicKey = MandateLauncher.getPgpPublicKey();
-		
-		
+
 		try {
 			boolean success = false;
 			File sourceFolder = new File(srcPath);
@@ -84,10 +83,10 @@ public class MandateMain implements Runnable {
 				String zipFilePath = zippedPath + File.separator + zipName.getName() + ".zip";
 				MandateUtility.zipFolder(Paths.get(newSrcPath), Paths.get(zipFilePath));
 				String currDate = new java.text.SimpleDateFormat("ddMMyyyy").format(new java.util.Date());
-				
+
 				isZipped = true;
 //			Signing the zipped file start
-				
+
 				if (isZipped) {
 					try {
 						signedFilePath = signedPath + File.separator + zipName.getName() + ".zip";
@@ -97,91 +96,101 @@ public class MandateMain implements Runnable {
 						signature.update(zipFileBytes);
 						byte[] digitalSignature = signature.sign();
 						String base64ZipContent = Base64.getEncoder().encodeToString(zipFileBytes);
-						String base64Signature = Base64.getEncoder().encodeToString(digitalSignature); 
+						String base64Signature = Base64.getEncoder().encodeToString(digitalSignature);
 						String base64Certificate = Base64.getEncoder().encodeToString(publicKey.getEncoded());
 						String xmlContent = String.format(
-								"<Envelope> \n" +
-							    "  <OrgContent>%s</OrgContent>\n" +
-								"  <Signature>%s</Signature>\n"	 +
-							    "  <Certificate>%s</Certificate>\n" +
-								"</Envelope>",
-								base64ZipContent,
-								base64Signature,
-								base64Certificate
-								);
+								"<?xml version=\"1.0\" encoding=\"UTF-8\"?><Envelope><OrgContent>%s</OrgContent><Signature>%s</Signature><Certificate>%s</Certificate></Envelope>",
+								base64ZipContent, base64Signature, base64Certificate);
 						finalXmlPath = signedFilePath.replaceAll("(?i)\\.zip$", ".xml");
-						Files.write(Paths.get(finalXmlPath),xmlContent.getBytes(StandardCharsets.UTF_8));
+						Files.write(Paths.get(finalXmlPath), xmlContent.getBytes(StandardCharsets.UTF_8));
 						isSigned = true;
-					
+
 //			Encrypting the zipped file
-					if (isSigned) {
-						try {
-							Files.createDirectories(Paths.get(destPath + File.separator + currDate));
-							String encryptedFilePath = destPath + File.separator + currDate + File.separator
-									+ zipName.getName() + ".zip";
-							
-							PGPEncryptedDataGenerator encGen = new PGPEncryptedDataGenerator(
-									new JcePGPDataEncryptorBuilder(SymmetricKeyAlgorithmTags.AES_256)
-											.setWithIntegrityPacket(true).setSecureRandom(new SecureRandom())
-											.setProvider("BC"));
+						if (isSigned) {
+							try {
+								Files.createDirectories(Paths.get(destPath + File.separator + currDate));
+								String encryptedFilePath = destPath + File.separator + currDate + File.separator
+										+ zipName.getName() + ".zip";
 
-							encGen.addMethod(
-									new JcePublicKeyKeyEncryptionMethodGenerator(pgpPublicKey).setProvider("BC"));
+								try (OutputStream fileOut = new BufferedOutputStream(
+										new FileOutputStream(encryptedFilePath))) {
+									boolean encryptionResult = MandateUtility.rsaEncryptFile(fileOut, finalXmlPath,
+											pgpPublicKey, true, true);
 
-							try (OutputStream out = new BufferedOutputStream(new FileOutputStream(encryptedFilePath));
-									ArmoredOutputStream armoredOut = new ArmoredOutputStream(out)){
-									OutputStream encOut = encGen.open(armoredOut, new byte[4096]); 
-								Files.copy(Paths.get(finalXmlPath), encOut);
-								encGen.close();
-							} catch (Exception e) {
-								System.out.println(e.getMessage());
-							}
-							
-//							Files.move(Paths.get(finalXmlPath), Paths.get(encryptedFilePath), StandardCopyOption.REPLACE_EXISTING);
-//						System.out.println("Successfully encrypted folder: " + zipName.getName());
-							log.info("Successfully encrypted file: " + zipName.getName());
-							success = true;
+									if (encryptionResult) {
+										log.info("Successfull encrypted file : " + zipName.getName());
+										success = true;
+										isEncrypted = true;
+									} else {
+										throw new IOException("Encryption returned false");
+									}
+								}
 
+//							PGPEncryptedDataGenerator encGen = new PGPEncryptedDataGenerator(
+//									new JcePGPDataEncryptorBuilder(SymmetricKeyAlgorithmTags.AES_256)
+//											.setWithIntegrityPacket(true).setSecureRandom(new SecureRandom())
+//											.setProvider("BC"));
+//
+//							encGen.addMethod(
+//									new JcePublicKeyKeyEncryptionMethodGenerator(pgpPublicKey).setProvider("BC"));
+//
+//							try (OutputStream out = new BufferedOutputStream(new FileOutputStream(encryptedFilePath));
+//									ArmoredOutputStream armoredOut = new ArmoredOutputStream(out)){
+//									OutputStream encOut = encGen.open(armoredOut, new byte[4096]); 
+//								Files.copy(Paths.get(finalXmlPath), encOut);
+//								encGen.close();
+//							} catch (Exception e) {
+//								System.out.println(e.getMessage());
+//							}
+//							
+////							Files.move(Paths.get(finalXmlPath), Paths.get(encryptedFilePath), StandardCopyOption.REPLACE_EXISTING);
+////						System.out.println("Successfully encrypted folder: " + zipName.getName());
+//							log.info("Successfully encrypted file: " + zipName.getName());
+//							success = true;
+//
+								if (isEncrypted) {
 //						source backup
-							String backUpString = backUpPath + File.separator + File.separator + "SourceFilesBackUp"
-									+ File.separator + currDate + File.separator + type + File.separator
-									+ zipName.getName() + ".zip";
-							Files.createDirectories(Paths.get(backUpPath + File.separator + File.separator
-									+ "SourceFilesBackUp" + File.separator + currDate + File.separator + type));
-							MandateUtility.createBackUp(zipFilePath, backUpString);
+									String backUpString = backUpPath + File.separator + File.separator
+											+ "SourceFilesBackUp" + File.separator + currDate + File.separator + type
+											+ File.separator + zipName.getName() + ".zip";
+									Files.createDirectories(Paths.get(backUpPath + File.separator + File.separator
+											+ "SourceFilesBackUp" + File.separator + currDate + File.separator + type));
+									MandateUtility.createBackUp(zipFilePath, backUpString);
 
 //						output backup
-							backUpString = backUpPath + File.separator + File.separator + "EncryptedFilesBackUp"
-									+ File.separator + currDate + File.separator + zipName.getName() + ".zip";
-							Files.createDirectories(Paths.get(backUpPath + File.separator + File.separator
-									+ "EncryptedFilesBackUp" + File.separator + currDate + File.separator + type));
-							MandateUtility.createBackUp(encryptedFilePath, backUpString);
-							isEncrypted = true;
-						} catch (Exception e) {
+									backUpString = backUpPath + File.separator + File.separator + "EncryptedFilesBackUp"
+											+ File.separator + currDate + File.separator + zipName.getName() + ".zip";
+									Files.createDirectories(Paths
+											.get(backUpPath + File.separator + File.separator + "EncryptedFilesBackUp"
+													+ File.separator + currDate + File.separator + type));
+									MandateUtility.createBackUp(encryptedFilePath, backUpString);
+								}
+//							isEncrypted = true;
+							} catch (Exception e) {
 //						System.out.println("Error encrypting the files : " + e.getMessage());
-							log.info("Error encrypting the files : " + e.getMessage());
-						}
-					} else {
+								log.info("Error encrypting the files : " + e.getMessage());
+							}
+						} else {
 //						encryption failed
 //						System.out.println("Failed to encrypt the files");
-						log.info("Failed to encrypt the files");
+							log.info("Failed to encrypt the files");
+						}
+					} catch (Exception e) {
+						log.info("Failed to sign the files");
 					}
-				} catch(Exception e) {
-					log.info("Failed to sign the files");
-				}
 				} else {
 //					signing failed
 //					System.out.println("Failed to sign the files");
 					log.info("Failed to sign the files");
 				}
-				
+
 //				deleting files after processing/
 				try {
-					if(success) {
+					if (success) {
 //						Files.delete(Paths.get(newSrcPath));    
 						MandateUtility.deleteDirectory(Paths.get(newSrcPath));
 						Files.delete(Paths.get(zipFilePath));
-						Files.delete(Paths.get(finalXmlPath));
+//						Files.delete(Paths.get(finalXmlPath));
 					}
 				} catch (Exception e) {
 					log.info("Error while deleting files from process Folders " + e.getMessage());
