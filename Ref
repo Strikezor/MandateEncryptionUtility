@@ -1,0 +1,83 @@
+    // 1. Helper to get the full X509Certificate object (needed for CMS)
+    public static X509Certificate loadX509Certificate(String certPath) {
+        try (FileInputStream fis = new FileInputStream(certPath)) {
+            CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+            return (X509Certificate) certFactory.generateCertificate(fis);
+        } catch (Exception e) {
+            log.error("Error loading X509Certificate: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // 2. The CMS Signing Method (Matches ACHEncryptionUtility logic)
+    public static String signDataCMS(byte[] dataToSign, PrivateKey privateKey, X509Certificate cert) throws Exception {
+        // A. Create the Content Signer (SHA256 with RSA)
+        ContentSigner contentSigner = new JcaContentSignerBuilder("SHA256withRSA")
+                .setProvider("BC")
+                .build(privateKey);
+
+        // B. Set up the CMS Generator
+        CMSSignedDataGenerator generator = new CMSSignedDataGenerator();
+        generator.addSignerInfoGenerator(
+                new JcaSignerInfoGeneratorBuilder(
+                        new JcaDigestCalculatorProviderBuilder().setProvider("BC").build())
+                .build(contentSigner, cert));
+
+        // C. Add the certificate to the signature structure
+        List<X509Certificate> certList = new ArrayList<>();
+        certList.add(cert);
+        JcaCertStore certs = new JcaCertStore(certList);
+        generator.addCertificates(certs);
+
+        // D. Create the CMS Signed Data (DETACHED signature = false)
+        // This is crucial: 'false' means the file content is NOT included inside the signature block,
+        // which matches how your decryption utility verifies it.
+        CMSTypedData cmsData = new CMSProcessableByteArray(dataToSign);
+        CMSSignedData signedData = generator.generate(cmsData, false); 
+
+        // E. Return Base64 Encoded Signature
+        return Base64.getEncoder().encodeToString(signedData.getEncoded());
+    }
+
+
+
+
+
+
+// ... inside if (isZipped) {
+try {
+    signedFilePath = signedPath + File.separator + zipName.getName() + ".zip";
+    byte[] zipFileBytes = Files.readAllBytes(Paths.get(zipFilePath));
+    
+    // DELETE THIS OLD BLOCK ----------------------------------------
+    /* Signature signature = Signature.getInstance("SHA256withRSA");
+    signature.initSign(privateKey);
+    signature.update(zipFileBytes);
+    byte[] digitalSignature = signature.sign(); 
+    String base64Signature = Base64.getEncoder().encodeToString(digitalSignature);
+    */
+    // --------------------------------------------------------------
+
+    // INSERT THIS NEW BLOCK ----------------------------------------
+    // 1. Load the Public Certificate (Required for CMS)
+    // Note: Assuming MandateLauncher has a getter for the public key path. 
+    // If not, use the path directly or add the getter to Launcher.
+    // Example: String pubKeyPath = MandateLauncher.getPublicKeyPath(); 
+    // You might need to add `getPublicKeyPath()` to MandateLauncher if it's missing.
+    // Based on your previous files, it seemed to be stored in 'publicKeyPath' static var.
+    X509Certificate publicCert = MandateUtility.loadX509Certificate(MandateLauncher.getPublicKeyPath());
+
+    // 2. Generate CMS Signature
+    String base64Signature = MandateUtility.signDataCMS(zipFileBytes, privateKey, publicCert);
+    // --------------------------------------------------------------
+
+    String base64ZipContent = Base64.getEncoder().encodeToString(zipFileBytes);
+    
+    // Note: ACHUtility encodes the cert inside the XML too.
+    String base64Certificate = Base64.getEncoder().encodeToString(publicCert.getEncoded());
+    
+    String xmlContent = String.format(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Envelope><OrgContent>%s</OrgContent><Signature>%s</Signature><Certificate>%s</Certificate></Envelope>",
+            base64ZipContent, base64Signature, base64Certificate);
+            
+    // ... rest of the code (writing XML) remains the same
