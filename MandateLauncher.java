@@ -285,15 +285,14 @@ public class MandateLauncher {
 			fileNameLengthString = MandateEncProperties.getInstance().getProperty("FILE_NAME_LENGTH");
 			noOfDays = MandateEncProperties.getInstance().getProperty("NO_OF_DAYS");
 			sbiSrNo = MandateEncProperties.getInstance().getProperty("USER_ID");
-
+			
 			threadSleepTime = Integer.parseInt(threadSleepTimeString);
 			fileNameLength = Integer.parseInt(fileNameLengthString);
 			tailName = MandateEncProperties.getInstance().getProperty("TAIL_NAME");
 			Security.addProvider(new BouncyCastleProvider());
 			String password = "PASSWORD@1";
-//			privateKey = MandateUtility.getCertKeys("E:\\Akshay\\I61076H2HSVR_20122022B61076.pfx", password);
 			privateKey = MandateUtility.getCertKeys(privateKeyPath, password);
-//			publicKey = MandateUtility.getPubkeyfrompath("E:\\Akshay\\I61076H2HSVR_20122022B61076_PUB.cer");
+			
 			publicKey = MandateUtility.getPubkeyfrompath(publicKeyPath);
 			pgpPublicKey = (new JcaPGPKeyConverter().getPGPPublicKey(PGPPublicKey.RSA_GENERAL, publicKey,
 					new java.util.Date()));
@@ -409,9 +408,6 @@ public class MandateLauncher {
 									}
 
 								} catch (Exception e) {
-//									System.out.println("Failed to do Filename validation, Moving to path : "
-//											+ Paths.get(failedFilesPath + File.separator + "NameValidationFailed"
-//													+ File.separator + folderName));
 									log.info("Failed to validate the filename, Moving to path : "
 											+ Paths.get(failedFilesPath + File.separator + "NameValidationFailed"
 													+ File.separator + folderName));
