@@ -1,0 +1,56 @@
+if (isZipped) {
+    try {
+        signedFilePath = signedPath + File.separator + zipName.getName() + ".zip";
+        
+        // FIX 1: Ensure previous file IO is truly finished
+        File zipFileObj = new File(zipFilePath);
+        if (!zipFileObj.exists() || zipFileObj.length() == 0) {
+            throw new IOException("Zip file creation failed or file is empty: " + zipFilePath);
+        }
+
+        // Read bytes
+        byte[] zipFileBytes = Files.readAllBytes(Paths.get(zipFilePath));
+
+        // FIX 2: Check for empty byte array
+        if (zipFileBytes == null || zipFileBytes.length == 0) {
+            throw new Exception("zipFileBytes is empty. Zip process may have failed.");
+        }
+
+        // 1. GET THE CERTIFICATE
+        X509Certificate publicCert = MandateLauncher.getPublicX509Certificate();
+        if (publicCert == null) {
+            throw new Exception("Public Certificate is null.");
+        }
+
+        // 2. SIGN (CMS)
+        String base64Signature = MandateUtility.signDataCMS(zipFileBytes, privateKey, publicCert);
+        
+        // 3. ENCODE CONTENT (Standard Base64)
+        String base64ZipContent = Base64.getEncoder().encodeToString(zipFileBytes);
+        
+        // 4. ENCODE CERTIFICATE
+        String base64Certificate = Base64.getEncoder().encodeToString(publicCert.getEncoded());
+        
+        // FIX 3: Use StringBuilder instead of String.format
+        // String.format can choke on large Base64 strings. StringBuilder is safer and faster.
+        StringBuilder xmlBuilder = new StringBuilder();
+        xmlBuilder.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+        xmlBuilder.append("<Envelope>");
+        xmlBuilder.append("<OrgContent>").append(base64ZipContent).append("</OrgContent>");
+        xmlBuilder.append("<Signature>").append(base64Signature).append("</Signature>");
+        xmlBuilder.append("<Certificate>").append(base64Certificate).append("</Certificate>");
+        xmlBuilder.append("</Envelope>");
+        
+        String xmlContent = xmlBuilder.toString();
+        
+        finalXmlPath = signedFilePath.replaceAll("(?i)\\.zip$", ".xml");
+        Files.write(Paths.get(finalXmlPath), xmlContent.getBytes(StandardCharsets.UTF_8));
+        isSigned = true;
+
+        // ... continue to Encryption logic ...
+
+    } catch (Exception e) {
+        log.info("Failed to sign the files: " + e.getMessage());
+        e.printStackTrace(); 
+    }
+}
